@@ -1,0 +1,8 @@
+{
+  "service": "api-gateway",
+  "commit":  "a39bf2c1234567abcdef0123456789",
+  "version": "v1.42.3",
+  "author":  "alice",
+  "summary": "fix: tighten DB connection pool retry policy",
+  "when":   "2026-01-15T14:23:48Z"
+}

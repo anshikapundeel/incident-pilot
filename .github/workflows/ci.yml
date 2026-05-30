@@ -1,0 +1,54 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go: ['1.22', '1.23']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+      - name: Build
+        run: go build ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test ./... -count=1
+      - name: Test with race detector
+        run: go test -race ./... -count=1
+      - name: End-to-end smoke
+        run: |
+          go build -o /tmp/incident-pilot ./cmd/incident-pilot
+          /tmp/incident-pilot -addr :19099 -quiet &
+          SRV=$!
+          sleep 1
+          # Record a deploy
+          NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          NOW_3M_AGO=$(date -u -d "3 minutes ago" +"%Y-%m-%dT%H:%M:%SZ")
+          curl -fs -X POST http://localhost:19099/context/deploys -d "{
+            \"service\": \"api-gateway\",
+            \"commit\":  \"a39bf2c\",
+            \"author\":  \"alice\",
+            \"when\":    \"$NOW_3M_AGO\"
+          }"
+          # Fire alert
+          curl -fs -X POST http://localhost:19099/alerts \
+            -H 'Content-Type: application/json' \
+            -d @examples/sample_alert.json > /tmp/resp.json
+          cat /tmp/resp.json
+          test "$(jq -r '.processed' /tmp/resp.json)" = "1"
+          # Verify incident shows up
+          curl -fs http://localhost:19099/api/incidents | jq .
+          curl -fs http://localhost:19099/api/incidents | jq -e '.count >= 1' > /dev/null
+          curl -fs http://localhost:19099/healthz | grep -q ok
+          kill $SRV
